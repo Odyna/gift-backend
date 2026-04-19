@@ -8,7 +8,7 @@ const jwt = require('jsonwebtoken');
 const crypto = require('crypto');
 
 const app = express();
-app.set('trust proxy', true);
+
 // ================= 【安全修复1】CORS跨域限制 =================
 const allowedOrigins = [
   'http://localhost:3000',
