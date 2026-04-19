@@ -9,19 +9,21 @@ const crypto = require('crypto');
 
 const app = express();
 
-// ================= 【安全修复1】CORS跨域限制 =================
-const allowedOrigins = [
-  'http://localhost:3000',
-  'capacitor://localhost',
-  'http://localhost'
-];
-// ================= 【修复CORS：放行所有跨域，允许管理后台访问】 =================
+// ================= 【终极CORS修复：放行所有跨域 + 允许admin-password请求头】 =================
 app.use(cors({
-  origin: true, // 放行所有来源（网页/APP都能用）
+  origin: true,
   methods: ['GET', 'POST', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization'],
+  // 关键修复：添加 admin-password 自定义请求头
+  allowedHeaders: ['Content-Type', 'Authorization', 'admin-password'],
   credentials: true
 }));
+// 处理浏览器OPTIONS预检请求（彻底解决跨域拦截）
+app.options('*', (req, res) => {
+  res.header('Access-Control-Allow-Origin', '*');
+  res.header('Access-Control-Allow-Methods', 'GET,POST,OPTIONS');
+  res.header('Access-Control-Allow-Headers', 'Content-Type,Authorization,admin-password');
+  res.sendStatus(200);
+});
 
 // ================= 【安全修复2】接口限流 =================
 const globalLimiter = rateLimit({
@@ -44,13 +46,13 @@ const authLimiter = rateLimit({
 app.use(express.static('public'));
 app.use(express.json({ limit: '1mb' }));
 
-// ================= 【修复1：删除多余单引号！核心语法错误】 =================
+// ================= 数据库配置 =================
 const dbConfig = {
   host: process.env.DB_HOST,
   port: process.env.DB_PORT,
   user: process.env.DB_USER,
   password: process.env.DB_PASSWORD,
-  database: process.env.DB_DATABASE, // ✅ 这里修复了！删掉了多余的 '
+  database: process.env.DB_DATABASE,
   waitForConnections: true,
   connectionLimit: 10,
   queueLimit: 0,
@@ -58,7 +60,7 @@ const dbConfig = {
   timeout: 10000
 };
 
-// ================= 【修复2：环境变量加默认值，防止崩溃】 =================
+// ================= 环境变量配置 =================
 const JWT_SECRET = process.env.JWT_SECRET || 'default_secret_key';
 const JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN || '7d';
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || 'admin123';
@@ -747,7 +749,7 @@ app.use((err, req, res, next) => {
   res.status(500).json({ success: false, message: '服务器内部错误' });
 });
 
-// ================= 【修复3：强制监听 0.0.0.0】 =================
+// ================= 服务启动 =================
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, '0.0.0.0', async () => {
   console.log(`🚀 服务器运行在 http://0.0.0.0:${PORT}`);
