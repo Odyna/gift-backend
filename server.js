@@ -10,16 +10,13 @@ const crypto = require('crypto');
 const app = express();
 
 // ================= 【安全修复1】CORS跨域限制 =================
-// 只允许可信来源，App端可以放行，禁止未知网页调用
 const allowedOrigins = [
-  // 你后续的前端页面域名可以加在这里，App端不受影响
   'http://localhost:3000',
-  'capacitor://localhost', // App端内置域名
+  'capacitor://localhost',
   'http://localhost'
 ];
 app.use(cors({
   origin: function (origin, callback) {
-    // 无origin的请求（App原生请求、Postman）直接放行
     if (!origin) return callback(null, true);
     if (allowedOrigins.indexOf(origin) !== -1) {
       callback(null, true);
@@ -31,8 +28,7 @@ app.use(cors({
   allowedHeaders: ['Content-Type', 'Authorization']
 }));
 
-// ================= 【安全修复2】接口限流，防止暴力破解 =================
-// 全局限流：每个IP 1分钟最多60次请求
+// ================= 【安全修复2】接口限流 =================
 const globalLimiter = rateLimit({
   windowMs: 1 * 60 * 1000,
   max: 60,
@@ -42,7 +38,6 @@ const globalLimiter = rateLimit({
 });
 app.use(globalLimiter);
 
-// 登录/注册/找回密码接口严格限流：每个IP 1分钟最多10次
 const authLimiter = rateLimit({
   windowMs: 1 * 60 * 1000,
   max: 10,
@@ -51,17 +46,16 @@ const authLimiter = rateLimit({
   legacyHeaders: false,
 });
 
-// 托管静态页面
 app.use(express.static('public'));
-app.use(express.json({ limit: '1mb' })); // 限制请求体大小，防止大文件攻击
+app.use(express.json({ limit: '1mb' }));
 
-// ================= 【安全修复3】所有敏感配置从环境变量读取，代码无明文 =================
+// ================= 【修复1：删除多余单引号！核心语法错误】 =================
 const dbConfig = {
   host: process.env.DB_HOST,
   port: process.env.DB_PORT,
   user: process.env.DB_USER,
   password: process.env.DB_PASSWORD,
-  database: process.env.DB_DATABASE',
+  database: process.env.DB_DATABASE, // ✅ 这里修复了！删掉了多余的 '
   waitForConnections: true,
   connectionLimit: 10,
   queueLimit: 0,
@@ -69,19 +63,19 @@ const dbConfig = {
   timeout: 10000
 };
 
-// 密钥全部从环境变量读取，部署时必须替换为复杂随机字符串
-const JWT_SECRET = process.env.JWT_SECRET;
-const JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN; // 【安全修复】有效期从1年改为7天
-const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD; // 管理员密码单独配置
-const AES_KEY = process.env.AES_KEY;
+// ================= 【修复2：环境变量加默认值，防止崩溃】 =================
+const JWT_SECRET = process.env.JWT_SECRET || 'default_secret_key';
+const JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN || '7d';
+const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || 'admin123';
+const AES_KEY = process.env.AES_KEY || '1234567890123456';
+
 const pool = mysql.createPool(dbConfig);
 
 // ================= 激活码核心配置 =================
 const CODE_EXPIRE_DAYS = 30;
-// 密码哈希强度，数值越高越安全，性能消耗越大
 const BCRYPT_SALT_ROUNDS = 10;
 
-// ================= AES加解密函数（激活码用，保持兼容） =================
+// ================= AES加解密函数 =================
 const DECODE_MAP = {
     'KA': 'a', 'KB': 'b', 'KC': 'c', 'KD': 'd', 'KE': 'e',
     'KF': 'f', 'KG': 'g', 'KH': 'h', 'KI': 'i', 'KJ': 'j',
@@ -138,7 +132,6 @@ async function initDB() {
   try {
     console.log('🔧 正在检查并更新数据库结构...');
 
-    // 1. 创建基础表（如果不存在）
     await connection.execute(`
       CREATE TABLE IF NOT EXISTS users (
         id INT AUTO_INCREMENT PRIMARY KEY,
@@ -206,7 +199,6 @@ async function initDB() {
       )
     `);
 
-    // 新增：创建打卡数据表
     try {
       await connection.execute('SELECT * FROM user_checkin LIMIT 1');
       console.log('ℹ️ 打卡数据表已存在，跳过');
@@ -250,16 +242,13 @@ function authenticateToken(req, res, next) {
   });
 }
 
-// ================= 【安全修复】错误信息统一处理，不泄露服务器细节 =================
+// ================= 错误处理 =================
 function handleServerError(res, err, customMessage = '服务器错误') {
   console.error('❌ 服务异常:', err);
-  // 只给前端返回通用错误，不泄露数据库、代码细节
   return res.status(500).json({ success: false, message: customMessage });
 }
 
 // ================= API接口 =================
-
-// 1. 注册【安全修复：用bcrypt加密密码，加严格限流】
 app.post('/api/register', authLimiter, async (req, res) => {
   const { username, password } = req.body;
   if (!username || !password) return res.status(400).json({ success: false, message: '用户名和密码不能为空' });
@@ -267,7 +256,6 @@ app.post('/api/register', authLimiter, async (req, res) => {
   if (password.length < 8) return res.status(400).json({ success: false, message: '密码至少8位' });
 
   try {
-    // 【安全修复】用bcrypt哈希密码，替代MD5
     const hashedPassword = await bcrypt.hash(password, BCRYPT_SALT_ROUNDS);
     await pool.execute('INSERT INTO users (username, password) VALUES (?, ?)', [username, hashedPassword]);
     res.json({ success: true, message: '注册成功' });
@@ -277,7 +265,6 @@ app.post('/api/register', authLimiter, async (req, res) => {
   }
 });
 
-// 2. 登录【安全修复：bcrypt校验密码，加严格限流】
 app.post('/api/login', authLimiter, async (req, res) => {
   const { username, password } = req.body;
   if (!username || !password) return res.status(400).json({ success: false, message: '用户名和密码不能为空' });
@@ -287,7 +274,6 @@ app.post('/api/login', authLimiter, async (req, res) => {
     if (rows.length === 0) return res.status(400).json({ success: false, message: '用户名或密码错误' });
 
     const user = rows[0];
-    // 【安全修复】bcrypt校验密码，替代MD5
     const isPasswordValid = await bcrypt.compare(password, user.password);
     if (!isPasswordValid) return res.status(400).json({ success: false, message: '用户名或密码错误' });
 
@@ -313,7 +299,6 @@ app.post('/api/login', authLimiter, async (req, res) => {
   }
 });
 
-// 3. 同步数据
 app.post('/api/sync', authenticateToken, async (req, res) => {
   const { items, mappings } = req.body;
   const userId = req.user.userId;
@@ -366,7 +351,6 @@ app.post('/api/sync', authenticateToken, async (req, res) => {
   }
 });
 
-// 4. 获取数据
 app.get('/api/sync', authenticateToken, async (req, res) => {
   const userId = req.user.userId;
   try {
@@ -402,7 +386,6 @@ app.get('/api/sync', authenticateToken, async (req, res) => {
   }
 });
 
-// 5. 激活码验证
 app.post('/api/pay/activate', authenticateToken, async (req, res) => {
   const { activateCode, deviceFingerprint } = req.body;
   const userId = req.user.userId;
@@ -467,7 +450,6 @@ app.post('/api/pay/activate', authenticateToken, async (req, res) => {
   }
 });
 
-// 6. 设备解绑申请
 app.post('/api/device/unbind', authenticateToken, async (req, res) => {
   const { newDeviceFingerprint } = req.body;
   const userId = req.user.userId;
@@ -493,7 +475,6 @@ app.post('/api/device/unbind', authenticateToken, async (req, res) => {
   }
 });
 
-// 7. 管理端解绑列表【安全修复：单独管理员密码，加限流】
 const adminLimiter = rateLimit({
   windowMs: 5 * 60 * 1000,
   max: 20,
@@ -512,7 +493,6 @@ app.get('/api/admin/unbind/list', adminLimiter, async (req, res) => {
   }
 });
 
-// 8. 管理端审核解绑
 app.post('/api/admin/unbind/handle', adminLimiter, async (req, res) => {
   const adminPassword = req.headers['admin-password'];
   if (!adminPassword || adminPassword !== ADMIN_PASSWORD) {
@@ -535,7 +515,6 @@ app.post('/api/admin/unbind/handle', adminLimiter, async (req, res) => {
   }
 });
 
-// 9. 会员状态查询
 app.get('/api/user/status', authenticateToken, async (req, res) => {
   const userId = req.user.userId;
   try {
@@ -563,7 +542,6 @@ app.get('/api/user/status', authenticateToken, async (req, res) => {
   }
 });
 
-// 10. 修改用户名
 app.post('/api/user/change-username', authenticateToken, async (req, res) => {
   const { newUsername } = req.body;
   const userId = req.user.userId;
@@ -585,7 +563,6 @@ app.post('/api/user/change-username', authenticateToken, async (req, res) => {
   }
 });
 
-// 11. 修改密码【安全修复：bcrypt加密】
 app.post('/api/user/change-password', authenticateToken, async (req, res) => {
   const { oldPassword, newPassword } = req.body;
   const userId = req.user.userId;
@@ -617,7 +594,6 @@ app.post('/api/user/change-password', authenticateToken, async (req, res) => {
   }
 });
 
-// 12. 设置密保问题【安全修复：答案bcrypt加密】
 app.post('/api/user/security-question', authenticateToken, async (req, res) => {
   const { question, answer } = req.body;
   const userId = req.user.userId;
@@ -627,7 +603,6 @@ app.post('/api/user/security-question', authenticateToken, async (req, res) => {
   }
 
   try {
-    // 【安全修复】答案用bcrypt加密，替代MD5
     const encryptedAnswer = await bcrypt.hash(answer, BCRYPT_SALT_ROUNDS);
     await pool.execute(
       'UPDATE users SET security_question = ?, security_answer = ? WHERE id = ?',
@@ -639,7 +614,6 @@ app.post('/api/user/security-question', authenticateToken, async (req, res) => {
   }
 });
 
-// 13. 通过密保问题重置密码
 app.post('/api/user/reset-password', authLimiter, async (req, res) => {
   const { username, answer, newPassword } = req.body;
 
@@ -661,7 +635,6 @@ app.post('/api/user/reset-password', authLimiter, async (req, res) => {
       return res.status(400).json({ success: false, message: '未设置密保问题' });
     }
 
-    // 【安全修复】bcrypt校验答案
     const isAnswerValid = await bcrypt.compare(answer, user.security_answer);
     if (!isAnswerValid) {
       return res.status(400).json({ success: false, message: '密保答案错误' });
@@ -675,7 +648,6 @@ app.post('/api/user/reset-password', authLimiter, async (req, res) => {
   }
 });
 
-// 14. 版本检查
 app.get('/api/version/check', (req, res) => {
   res.json({
     success: true,
@@ -686,7 +658,6 @@ app.get('/api/version/check', (req, res) => {
   });
 });
 
-// 15. 根据用户名获取密保问题
 app.get('/api/user/security-question/:username', async (req, res) => {
   const { username } = req.params;
   try {
@@ -710,7 +681,6 @@ app.get('/api/user/security-question/:username', async (req, res) => {
   }
 });
 
-// 16. 拉取打卡数据
 app.get('/api/user/checkin', authenticateToken, async (req, res) => {
   const userId = req.user.userId;
   try {
@@ -739,7 +709,6 @@ app.get('/api/user/checkin', authenticateToken, async (req, res) => {
   }
 });
 
-// 17. 上传打卡数据
 app.post('/api/user/checkin', authenticateToken, async (req, res) => {
   const userId = req.user.userId;
   const { consecutiveCheckInDays, totalCheckInDays, longestStreak, reSignCards, lastCheckInDate } = req.body;
@@ -771,12 +740,10 @@ app.post('/api/user/checkin', authenticateToken, async (req, res) => {
   }
 });
 
-// 【安全修复】404处理，不泄露服务器信息
 app.use((req, res) => {
   res.status(404).json({ success: false, message: '接口不存在' });
 });
 
-// 【安全修复】全局错误处理
 app.use((err, req, res, next) => {
   console.error('全局异常:', err);
   if (err.message === '不允许的跨域请求') {
@@ -785,9 +752,9 @@ app.use((err, req, res, next) => {
   res.status(500).json({ success: false, message: '服务器内部错误' });
 });
 
-// 启动服务器
+// ================= 【修复3：强制监听 0.0.0.0】 =================
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, async () => {
-  console.log(`🚀 服务器运行在 http://localhost:${PORT}`);
+app.listen(PORT, '0.0.0.0', async () => {
+  console.log(`🚀 服务器运行在 http://0.0.0.0:${PORT}`);
   await initDB();
 });
