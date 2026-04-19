@@ -49,13 +49,14 @@ const authLimiter = rateLimit({
 app.use(express.static('public'));
 app.use(express.json({ limit: '1mb' }));
 
-// ================= 【修复1：删除多余单引号！核心语法错误】 =================
+// ================= 【安全修复3】配置从环境变量读取 =================
+// ✅ 修复1：删除了多余的单引号（原代码：process.env.DB_DATABASE'）
 const dbConfig = {
   host: process.env.DB_HOST,
   port: process.env.DB_PORT,
   user: process.env.DB_USER,
   password: process.env.DB_PASSWORD,
-  database: process.env.DB_DATABASE, // ✅ 这里修复了！删掉了多余的 '
+  database: process.env.DB_DATABASE,
   waitForConnections: true,
   connectionLimit: 10,
   queueLimit: 0,
@@ -63,12 +64,10 @@ const dbConfig = {
   timeout: 10000
 };
 
-// ================= 【修复2：环境变量加默认值，防止崩溃】 =================
-const JWT_SECRET = process.env.JWT_SECRET || 'default_secret_key';
-const JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN || '7d';
-const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || 'admin123';
-const AES_KEY = process.env.AES_KEY || '1234567890123456';
-
+const JWT_SECRET = process.env.JWT_SECRET;
+const JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN;
+const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD;
+const AES_KEY = process.env.AES_KEY;
 const pool = mysql.createPool(dbConfig);
 
 // ================= 激活码核心配置 =================
@@ -242,7 +241,7 @@ function authenticateToken(req, res, next) {
   });
 }
 
-// ================= 错误处理 =================
+// ================= 错误统一处理 =================
 function handleServerError(res, err, customMessage = '服务器错误') {
   console.error('❌ 服务异常:', err);
   return res.status(500).json({ success: false, message: customMessage });
@@ -752,9 +751,10 @@ app.use((err, req, res, next) => {
   res.status(500).json({ success: false, message: '服务器内部错误' });
 });
 
-// ================= 【修复3：强制监听 0.0.0.0】 =================
+// 启动服务器
 const PORT = process.env.PORT || 3000;
+// ✅ 修复2：添加监听地址 0.0.0.0（容器部署必须）
 app.listen(PORT, '0.0.0.0', async () => {
-  console.log(`🚀 服务器运行在 http://0.0.0.0:${PORT}`);
+  console.log(`🚀 服务器运行在 http://localhost:${PORT}`);
   await initDB();
 });
