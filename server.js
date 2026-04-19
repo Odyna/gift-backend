@@ -15,17 +15,12 @@ const allowedOrigins = [
   'capacitor://localhost',
   'http://localhost'
 ];
+// ================= 【修复CORS：放行所有跨域，允许管理后台访问】 =================
 app.use(cors({
-  origin: function (origin, callback) {
-    if (!origin) return callback(null, true);
-    if (allowedOrigins.indexOf(origin) !== -1) {
-      callback(null, true);
-    } else {
-      callback(new Error('不允许的跨域请求'), false);
-    }
-  },
+  origin: true, // 放行所有来源（网页/APP都能用）
   methods: ['GET', 'POST', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization']
+  allowedHeaders: ['Content-Type', 'Authorization'],
+  credentials: true
 }));
 
 // ================= 【安全修复2】接口限流 =================
