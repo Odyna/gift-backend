@@ -1,7 +1,6 @@
 const express = require('express');
 const mysql = require('mysql2/promise');
 const cors = require('cors');
-const bcrypt = require('bcrypt');
 const rateLimit = require('express-rate-limit');
 const CryptoJS = require('crypto-js');
 const jwt = require('jsonwebtoken');
@@ -9,7 +8,7 @@ const crypto = require('crypto');
 
 const app = express();
 
-// ================= 【安全修复1】CORS跨域限制 =================
+// ================= CORS跨域 =================
 const allowedOrigins = [
   'http://localhost:3000',
   'capacitor://localhost',
@@ -28,7 +27,7 @@ app.use(cors({
   allowedHeaders: ['Content-Type', 'Authorization']
 }));
 
-// ================= 【安全修复2】接口限流 =================
+// ================= 接口限流 =================
 const globalLimiter = rateLimit({
   windowMs: 1 * 60 * 1000,
   max: 60,
@@ -49,8 +48,7 @@ const authLimiter = rateLimit({
 app.use(express.static('public'));
 app.use(express.json({ limit: '1mb' }));
 
-// ================= 【安全修复3】配置从环境变量读取 =================
-// ✅ 修复1：删除了多余的单引号（原代码：process.env.DB_DATABASE'）
+// ================= 数据库配置 =================
 const dbConfig = {
   host: process.env.DB_HOST,
   port: process.env.DB_PORT,
@@ -70,9 +68,8 @@ const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD;
 const AES_KEY = process.env.AES_KEY;
 const pool = mysql.createPool(dbConfig);
 
-// ================= 激活码核心配置 =================
+// ================= 激活码配置 =================
 const CODE_EXPIRE_DAYS = 30;
-const BCRYPT_SALT_ROUNDS = 10;
 
 // ================= AES加解密函数 =================
 const DECODE_MAP = {
@@ -248,6 +245,7 @@ function handleServerError(res, err, customMessage = '服务器错误') {
 }
 
 // ================= API接口 =================
+// ✅ 注册：直接存储明文密码（无加密）
 app.post('/api/register', authLimiter, async (req, res) => {
   const { username, password } = req.body;
   if (!username || !password) return res.status(400).json({ success: false, message: '用户名和密码不能为空' });
@@ -255,8 +253,8 @@ app.post('/api/register', authLimiter, async (req, res) => {
   if (password.length < 8) return res.status(400).json({ success: false, message: '密码至少8位' });
 
   try {
-    const hashedPassword = await bcrypt.hash(password, BCRYPT_SALT_ROUNDS);
-    await pool.execute('INSERT INTO users (username, password) VALUES (?, ?)', [username, hashedPassword]);
+    // 直接存明文密码
+    await pool.execute('INSERT INTO users (username, password) VALUES (?, ?)', [username, password]);
     res.json({ success: true, message: '注册成功' });
   } catch (err) {
     if (err.code === 'ER_DUP_ENTRY') return res.status(400).json({ success: false, message: '用户名已存在' });
@@ -264,6 +262,7 @@ app.post('/api/register', authLimiter, async (req, res) => {
   }
 });
 
+// ✅ 登录：直接对比明文密码（无加密）
 app.post('/api/login', authLimiter, async (req, res) => {
   const { username, password } = req.body;
   if (!username || !password) return res.status(400).json({ success: false, message: '用户名和密码不能为空' });
@@ -273,7 +272,8 @@ app.post('/api/login', authLimiter, async (req, res) => {
     if (rows.length === 0) return res.status(400).json({ success: false, message: '用户名或密码错误' });
 
     const user = rows[0];
-    const isPasswordValid = await bcrypt.compare(password, user.password);
+    // 直接明文对比密码
+    const isPasswordValid = password === user.password;
     if (!isPasswordValid) return res.status(400).json({ success: false, message: '用户名或密码错误' });
 
     let isPremium = user.is_premium;
@@ -298,6 +298,7 @@ app.post('/api/login', authLimiter, async (req, res) => {
   }
 });
 
+// 同步数据接口（不变）
 app.post('/api/sync', authenticateToken, async (req, res) => {
   const { items, mappings } = req.body;
   const userId = req.user.userId;
@@ -385,6 +386,7 @@ app.get('/api/sync', authenticateToken, async (req, res) => {
   }
 });
 
+// 激活会员（不变）
 app.post('/api/pay/activate', authenticateToken, async (req, res) => {
   const { activateCode, deviceFingerprint } = req.body;
   const userId = req.user.userId;
@@ -449,6 +451,7 @@ app.post('/api/pay/activate', authenticateToken, async (req, res) => {
   }
 });
 
+// 设备解绑（不变）
 app.post('/api/device/unbind', authenticateToken, async (req, res) => {
   const { newDeviceFingerprint } = req.body;
   const userId = req.user.userId;
@@ -474,6 +477,7 @@ app.post('/api/device/unbind', authenticateToken, async (req, res) => {
   }
 });
 
+// 管理员接口（不变）
 const adminLimiter = rateLimit({
   windowMs: 5 * 60 * 1000,
   max: 20,
@@ -514,6 +518,7 @@ app.post('/api/admin/unbind/handle', adminLimiter, async (req, res) => {
   }
 });
 
+// 用户状态（不变）
 app.get('/api/user/status', authenticateToken, async (req, res) => {
   const userId = req.user.userId;
   try {
@@ -541,6 +546,7 @@ app.get('/api/user/status', authenticateToken, async (req, res) => {
   }
 });
 
+// 修改用户名（不变）
 app.post('/api/user/change-username', authenticateToken, async (req, res) => {
   const { newUsername } = req.body;
   const userId = req.user.userId;
@@ -562,6 +568,7 @@ app.post('/api/user/change-username', authenticateToken, async (req, res) => {
   }
 });
 
+// ✅ 修改密码：明文存储
 app.post('/api/user/change-password', authenticateToken, async (req, res) => {
   const { oldPassword, newPassword } = req.body;
   const userId = req.user.userId;
@@ -580,19 +587,21 @@ app.post('/api/user/change-password', authenticateToken, async (req, res) => {
     }
 
     const currentPassword = rows[0].password;
-    const isPasswordValid = await bcrypt.compare(oldPassword, currentPassword);
+    // 明文对比旧密码
+    const isPasswordValid = oldPassword === currentPassword;
     if (!isPasswordValid) {
       return res.status(400).json({ success: false, message: '原密码错误' });
     }
 
-    const newHashedPassword = await bcrypt.hash(newPassword, BCRYPT_SALT_ROUNDS);
-    await pool.execute('UPDATE users SET password = ? WHERE id = ?', [newHashedPassword, userId]);
+    // 明文存储新密码
+    await pool.execute('UPDATE users SET password = ? WHERE id = ?', [newPassword, userId]);
     res.json({ success: true, message: '密码修改成功，请重新登录' });
   } catch (err) {
     return handleServerError(res, err, '服务器错误');
   }
 });
 
+// ✅ 密保问题：明文存储答案
 app.post('/api/user/security-question', authenticateToken, async (req, res) => {
   const { question, answer } = req.body;
   const userId = req.user.userId;
@@ -602,10 +611,10 @@ app.post('/api/user/security-question', authenticateToken, async (req, res) => {
   }
 
   try {
-    const encryptedAnswer = await bcrypt.hash(answer, BCRYPT_SALT_ROUNDS);
+    // 明文存储密保答案
     await pool.execute(
       'UPDATE users SET security_question = ?, security_answer = ? WHERE id = ?',
-      [question, encryptedAnswer, userId]
+      [question, answer, userId]
     );
     res.json({ success: true, message: '密保问题设置成功' });
   } catch (err) {
@@ -613,6 +622,7 @@ app.post('/api/user/security-question', authenticateToken, async (req, res) => {
   }
 });
 
+// ✅ 重置密码：明文对比+明文存储
 app.post('/api/user/reset-password', authLimiter, async (req, res) => {
   const { username, answer, newPassword } = req.body;
 
@@ -634,19 +644,21 @@ app.post('/api/user/reset-password', authLimiter, async (req, res) => {
       return res.status(400).json({ success: false, message: '未设置密保问题' });
     }
 
-    const isAnswerValid = await bcrypt.compare(answer, user.security_answer);
+    // 明文对比密保答案
+    const isAnswerValid = answer === user.security_answer;
     if (!isAnswerValid) {
       return res.status(400).json({ success: false, message: '密保答案错误' });
     }
 
-    const newHashedPassword = await bcrypt.hash(newPassword, BCRYPT_SALT_ROUNDS);
-    await pool.execute('UPDATE users SET password = ? WHERE id = ?', [newHashedPassword, user.id]);
+    // 明文存储新密码
+    await pool.execute('UPDATE users SET password = ? WHERE id = ?', [newPassword, user.id]);
     res.json({ success: true, message: '密码重置成功，请登录' });
   } catch (err) {
     return handleServerError(res, err, '服务器错误');
   }
 });
 
+// 版本检查（不变）
 app.get('/api/version/check', (req, res) => {
   res.json({
     success: true,
@@ -657,6 +669,7 @@ app.get('/api/version/check', (req, res) => {
   });
 });
 
+// 获取密保问题（不变）
 app.get('/api/user/security-question/:username', async (req, res) => {
   const { username } = req.params;
   try {
@@ -680,6 +693,7 @@ app.get('/api/user/security-question/:username', async (req, res) => {
   }
 });
 
+// 打卡接口（不变）
 app.get('/api/user/checkin', authenticateToken, async (req, res) => {
   const userId = req.user.userId;
   try {
@@ -753,7 +767,6 @@ app.use((err, req, res, next) => {
 
 // 启动服务器
 const PORT = process.env.PORT || 3000;
-// ✅ 修复2：添加监听地址 0.0.0.0（容器部署必须）
 app.listen(PORT, '0.0.0.0', async () => {
   console.log(`🚀 服务器运行在 http://localhost:${PORT}`);
   await initDB();
