@@ -9,25 +9,16 @@ const crypto = require('crypto');
 
 const app = express();
 
-
-// ================ 【终极CORS兜底方案 - 适配Back4App/所有浏览器】 ================
-// 处理所有请求的跨域，强制放行自定义头 admin-password
+// ================ 1. 【顶级CORS，必须放第一行！】 ================
 app.use((req, res, next) => {
-    // 允许所有来源（本地打开html也能用）
-    res.header('Access-Control-Allow-Origin', '*');
-    // 核心：明确写死允许的请求头，绝对不要用 * ！！！
-    res.header('Access-Control-Allow-Headers', 'Content-Type,Authorization,admin-password');
-    // 允许的请求方法
-    res.header('Access-Control-Allow-Methods', 'GET,POST,OPTIONS');
-    // 处理预检 OPTIONS 请求，直接返回200
-    if (req.method === 'OPTIONS') {
-        return res.sendStatus(200);
-    }
-    next();
+  res.header('Access-Control-Allow-Origin', '*');
+  res.header('Access-Control-Allow-Headers', 'Content-Type,Authorization,admin-password');
+  res.header('Access-Control-Allow-Methods', 'GET,POST,OPTIONS');
+  if (req.method === 'OPTIONS') return res.sendStatus(200);
+  next();
 });
 
-
-// ================= 接口限流 =================
+// ================ 2. 接口限流 ================
 const globalLimiter = rateLimit({
   windowMs: 1 * 60 * 1000,
   max: 60,
@@ -45,6 +36,7 @@ const authLimiter = rateLimit({
   legacyHeaders: false,
 });
 
+// ================ 3. 基础中间件 ================
 app.use(express.static('public'));
 app.use(express.json({ limit: '1mb' }));
 
