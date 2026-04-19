@@ -9,23 +9,12 @@ const crypto = require('crypto');
 
 const app = express();
 
-// ================= 【安全修复1】CORS跨域限制 =================
-const allowedOrigins = [
-  'http://localhost:3000',
-  'capacitor://localhost',
-  'http://localhost'
-];
+// ================= 【修复1】CORS跨域（放行所有App请求） =================
 app.use(cors({
-  origin: function (origin, callback) {
-    if (!origin) return callback(null, true);
-    if (allowedOrigins.indexOf(origin) !== -1) {
-      callback(null, true);
-    } else {
-      callback(new Error('不允许的跨域请求'), false);
-    }
-  },
+  origin: true,
   methods: ['GET', 'POST', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization']
+  allowedHeaders: ['Content-Type', 'Authorization'],
+  credentials: true
 }));
 
 // ================= 【安全修复2】接口限流 =================
@@ -36,6 +25,17 @@ const globalLimiter = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
 });
+app.use(globalLimiter);
+
+const authLimiter = rateLimit({
+  windowMs: 1 * 60 * 1000,
+  max: 10,
+  message: { success: false, message: '操作过于频繁，请1分钟后再试' },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
+
 app.use(globalLimiter);
 
 const authLimiter = rateLimit({
@@ -739,18 +739,16 @@ app.post('/api/user/checkin', authenticateToken, async (req, res) => {
   }
 });
 
+// 【修复2】404 - 强制返回JSON
 app.use((req, res) => {
   res.status(404).json({ success: false, message: '接口不存在' });
 });
 
+// 【修复3】全局异常 - 强制返回JSON
 app.use((err, req, res, next) => {
   console.error('全局异常:', err);
-  if (err.message === '不允许的跨域请求') {
-    return res.status(403).json({ success: false, message: err.message });
-  }
-  res.status(500).json({ success: false, message: '服务器内部错误' });
+  res.status(500).json({ success: false, message: '服务器异常，请重试' });
 });
-
 // 启动服务器
 const PORT = process.env.PORT || 3000;
 // ✅ 修复2：添加监听地址 0.0.0.0（容器部署必须）
