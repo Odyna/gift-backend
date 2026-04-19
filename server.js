@@ -10,15 +10,21 @@ const crypto = require('crypto');
 const app = express();
 
 
-// 正确的CORS配置：明确放行自定义请求头 admin-password
-app.use(cors({
-  origin: true, // 允许所有跨域来源（适配前端本地打开html）
-  methods: ['GET', 'POST', 'OPTIONS'], // 允许的请求方式
-  allowedHeaders: ['Content-Type', 'Authorization', 'admin-password'], // 核心：明确放行自定义请求头
-  credentials: true,
-  preflightContinue: false,
-  optionsSuccessStatus: 200
-}));
+// ================ 【终极CORS兜底方案 - 适配Back4App/所有浏览器】 ================
+// 处理所有请求的跨域，强制放行自定义头 admin-password
+app.use((req, res, next) => {
+    // 允许所有来源（本地打开html也能用）
+    res.header('Access-Control-Allow-Origin', '*');
+    // 核心：明确写死允许的请求头，绝对不要用 * ！！！
+    res.header('Access-Control-Allow-Headers', 'Content-Type,Authorization,admin-password');
+    // 允许的请求方法
+    res.header('Access-Control-Allow-Methods', 'GET,POST,OPTIONS');
+    // 处理预检 OPTIONS 请求，直接返回200
+    if (req.method === 'OPTIONS') {
+        return res.sendStatus(200);
+    }
+    next();
+});
 
 
 // ================= 接口限流 =================
