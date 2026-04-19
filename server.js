@@ -9,18 +9,17 @@ const crypto = require('crypto');
 
 const app = express();
 
-// ================= 【终极CORS修复：放行所有跨域 + 允许admin-password请求头】 =================
-app.use((req, res, next) => {
-  res.header("Access-Control-Allow-Origin", "*");
-  res.header("Access-Control-Allow-Methods", "GET,POST,OPTIONS");
-  // 核心：允许所有请求头（包含 admin-password）
-  res.header("Access-Control-Allow-Headers", "*");
-  // 处理预检请求
-  if (req.method === "OPTIONS") {
-    return res.sendStatus(200);
-  }
-  next();
-});
+
+// 正确的CORS配置：明确放行自定义请求头 admin-password
+app.use(cors({
+  origin: true, // 允许所有跨域来源（适配前端本地打开html）
+  methods: ['GET', 'POST', 'OPTIONS'], // 允许的请求方式
+  allowedHeaders: ['Content-Type', 'Authorization', 'admin-password'], // 核心：明确放行自定义请求头
+  credentials: true,
+  preflightContinue: false,
+  optionsSuccessStatus: 200
+}));
+
 
 // ================= 接口限流 =================
 const globalLimiter = rateLimit({
